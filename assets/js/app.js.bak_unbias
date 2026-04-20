@@ -10,7 +10,6 @@ const defaultState = {
   gameName: 'Hi-Fi Rush',
   platform: 'PC',
   control: 8,
-  clarity: 7,
   freedom: 6,
   expression: 9,
   engagement: 9,
@@ -33,7 +32,6 @@ function getState() {
     gameName: document.getElementById('gameName')?.value || 'Untitled Game',
     platform: document.getElementById('platform')?.value || 'PC',
     control: Number(document.getElementById('control')?.value || 5),
-    clarity: Number(document.getElementById('clarity')?.value || 5),
     freedom: Number(document.getElementById('freedom')?.value || 5),
     expression: Number(document.getElementById('expression')?.value || 5),
     engagement: Number(document.getElementById('engagement')?.value || 5),
@@ -47,31 +45,17 @@ function getState() {
 }
 
 function scoreState(state) {
-  const weights = {
-    control: 0.14,
-    clarity: 0.12,
-    freedom: 0.10,
-    expression: 0.15,
-    engagement: 0.17,
-    depth: 0.10,
-    flow: 0.12,
-    intensity: 0.12,
-    replay: 0.08
-  };
-
-  let totalWeight = 0;
-  let weightedSum = 0;
-
-  for (const key in weights) {
-    const value = safeNumber(state[key], 5);
-    const weight = weights[key];
-    weightedSum += value * weight;
-    totalWeight += weight;
-  }
-
-  const normalized = weightedSum / totalWeight;
-
-  return Math.round(normalized * 10) / 10;
+  const weighted = (
+    state.control * 0.16 +
+    state.freedom * 0.10 +
+    state.expression * 0.15 +
+    state.engagement * 0.17 +
+    state.depth * 0.10 +
+    state.flow * 0.12 +
+    state.intensity * 0.12 +
+    state.replay * 0.08
+  );
+  return Math.round(weighted * 10) / 10;
 }
 
 function buildVerdict(state) {
@@ -203,7 +187,6 @@ function saveToHistory(state, score, verdict) {
     gameName: state.gameName,
     platform: state.platform,
     control: state.control,
-    clarity: state.clarity,
     freedom: state.freedom,
     expression: state.expression,
     engagement: state.engagement,
@@ -228,7 +211,6 @@ function loadHistoryItem(item) {
     gameName: item.gameName || 'Untitled Game',
     platform: item.platform || 'PC',
     control: Number(item.control ?? 5),
-    clarity: Number(item.clarity ?? 5),
     freedom: Number(item.freedom ?? 5),
     expression: Number(item.expression ?? 5),
     engagement: Number(item.engagement ?? 5),
@@ -253,9 +235,9 @@ function buildIdentityLine(state) {
   else if (state.intensity <= 4) tags.push('Low Pace');
   else tags.push('Mid Pace');
 
-  if (state.clarity >= 8) tags.push('High Clarity');
-  else if (state.clarity <= 4) tags.push('Low Clarity');
-  else tags.push('Mid Clarity');
+  if (state.control >= 8) tags.push('Strong Input');
+  else if (state.control <= 4) tags.push('Loose Input');
+  else tags.push('Balanced Input');
 
   return tags.join(' • ');
 }
@@ -488,7 +470,6 @@ function updateResults(state, initial = false) {
 
   const resultMap = {
     resultControl: state.control,
-    resultClarity: state.clarity,
     resultFreedom: state.freedom,
     resultExpression: state.expression,
     resultEngagement: state.engagement,
@@ -504,14 +485,14 @@ function updateResults(state, initial = false) {
 }
 
 function loadState(state) {
-  const ids = ['gameName','platform','control','clarity','freedom','expression','engagement','depth','flow','intensity','replay','notes'];
+  const ids = ['gameName','platform','control','freedom','expression','engagement','depth','flow','intensity','replay','notes'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     if (state[id] !== undefined) el.value = state[id];
   });
 
-  ['control','clarity','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
+  ['control','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
     const display = document.getElementById(`${id}Display`);
     const input = document.getElementById(id);
     if (display && input) display.textContent = input.value;
@@ -560,7 +541,7 @@ tags.forEach(tag => {
   tag.addEventListener('click', () => tag.classList.toggle('active'));
 });
 
-['control','clarity','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
+['control','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
   const input = document.getElementById(id);
   const display = document.getElementById(`${id}Display`);
   if (input && display) {
@@ -626,10 +607,3 @@ if (stored) {
 
 renderRecentGames();
 renderHistoryGames();
-
-
-function safeNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-

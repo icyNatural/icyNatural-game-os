@@ -47,31 +47,18 @@ function getState() {
 }
 
 function scoreState(state) {
-  const weights = {
-    control: 0.14,
-    clarity: 0.12,
-    freedom: 0.10,
-    expression: 0.15,
-    engagement: 0.17,
-    depth: 0.10,
-    flow: 0.12,
-    intensity: 0.12,
-    replay: 0.08
-  };
-
-  let totalWeight = 0;
-  let weightedSum = 0;
-
-  for (const key in weights) {
-    const value = safeNumber(state[key], 5);
-    const weight = weights[key];
-    weightedSum += value * weight;
-    totalWeight += weight;
-  }
-
-  const normalized = weightedSum / totalWeight;
-
-  return Math.round(normalized * 10) / 10;
+  const weighted = (
+    state.control * 0.14 +
+    state.clarity * 0.12 +
+    state.freedom * 0.10 +
+    state.expression * 0.15 +
+    state.engagement * 0.17 +
+    state.depth * 0.10 +
+    state.flow * 0.12 +
+    state.intensity * 0.12 +
+    state.replay * 0.08
+  );
+  return Math.round(weighted * 10) / 10;
 }
 
 function buildVerdict(state) {
@@ -626,10 +613,4 @@ if (stored) {
 
 renderRecentGames();
 renderHistoryGames();
-
-
-function safeNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
 
