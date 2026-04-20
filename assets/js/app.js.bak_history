@@ -1,0 +1,466 @@
+﻿const tabs = document.querySelectorAll('.tab');
+const navButtons = document.querySelectorAll('.nav-btn[data-tab]');
+const goButtons = document.querySelectorAll('[data-go]');
+const tags = document.querySelectorAll('#frictionTags .tag');
+
+const STORAGE_KEY = 'icyNaturalGameOS';
+const HISTORY_KEY = 'icyNaturalGameOSHistory';
+
+const defaultState = {
+  gameName: 'Hi-Fi Rush',
+  platform: 'PC',
+  control: 8,
+  freedom: 6,
+  expression: 9,
+  engagement: 9,
+  depth: 7,
+  flow: 8,
+  intensity: 9,
+  replay: 8,
+  notes: 'Great combat rhythm. Strong feedback. Moderate freedom but high style factor.',
+  friction: []
+};
+
+function showTab(tabId) {
+  tabs.forEach(tab => tab.classList.toggle('active', tab.id === tabId));
+  navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabId));
+}
+
+function getState() {
+  const friction = [...document.querySelectorAll('#frictionTags .tag.active')].map(t => t.textContent.trim());
+  return {
+    gameName: document.getElementById('gameName')?.value || 'Untitled Game',
+    platform: document.getElementById('platform')?.value || 'PC',
+    control: Number(document.getElementById('control')?.value || 5),
+    freedom: Number(document.getElementById('freedom')?.value || 5),
+    expression: Number(document.getElementById('expression')?.value || 5),
+    engagement: Number(document.getElementById('engagement')?.value || 5),
+    depth: Number(document.getElementById('depth')?.value || 5),
+    flow: Number(document.getElementById('flow')?.value || 5),
+    intensity: Number(document.getElementById('intensity')?.value || 5),
+    replay: Number(document.getElementById('replay')?.value || 5),
+    notes: document.getElementById('notes')?.value || '',
+    friction
+  };
+}
+
+function loadState(state) {
+  const ids = ['gameName','platform','control','freedom','expression','engagement','depth','flow','intensity','replay','notes'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (state[id] !== undefined) el.value = state[id];
+  });
+
+  ['control','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
+    const display = document.getElementById(`${id}Display`);
+    const input = document.getElementById(id);
+    if (display && input) display.textContent = input.value;
+  });
+
+  tags.forEach(tag => {
+    tag.classList.toggle('active', (state.friction || []).includes(tag.textContent.trim()));
+  });
+
+  updateResults(state, true);
+}
+
+function scoreState(state) {
+  const weighted = (
+    state.control * 0.16 +
+    state.freedom * 0.10 +
+    state.expression * 0.15 +
+    state.engagement * 0.17 +
+    state.depth * 0.10 +
+    state.flow * 0.12 +
+    state.intensity * 0.12 +
+    state.replay * 0.08
+  );
+  return Math.round(weighted * 10) / 10;
+}
+
+function buildVerdict(state) {
+  const lines = [];
+  if (state.intensity >= 8) lines.push('High interaction density.');
+  else if (state.intensity <= 4) lines.push('Low engagement density.');
+  if (state.expression >= 8) lines.push('Strong expression potential.');
+  if (state.control >= 8) lines.push('Very responsive control feel.');
+  if (state.freedom <= 4) lines.push('Some restriction is present.');
+  if (state.replay >= 8) lines.push('Strong replay pull.');
+  return lines.join(' ') || 'Solid experience.';
+}
+
+function animateNumber(el, endValue, decimals = 0) {
+  if (!el) return;
+  const startValue = Number(el.dataset.value || 0);
+  const duration = 500;
+  const startTime = performance.now();
+
+  function frame(now) {
+    const progress = Math.min((now - startTime) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = startValue + ((endValue - startValue) * eased);
+    el.textContent = current.toFixed(decimals);
+    if (progress < 1) {
+      requestAnimationFrame(frame);
+    } else {
+      el.dataset.value = endValue;
+      el.textContent = Number(endValue).toFixed(decimals);
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function toneForValue(value) {
+  if (value <= 2) return 'var(--red)';
+  if (value <= 4) return 'var(--orange)';
+  if (value <= 6) return 'var(--green)';
+  if (value <= 8) return 'var(--cyan)';
+  return 'linear-gradient(90deg,var(--blue),var(--violet))';
+}
+
+function shadowForValue(value) {
+  if (value <= 2) return '0 0 18px rgba(255,95,109,.20)';
+  if (value <= 4) return '0 0 18px rgba(255,159,67,.18)';
+  if (value <= 6) return '0 0 18px rgba(90,242,167,.18)';
+  if (value <= 8) return '0 0 18px rgba(99,215,255,.18)';
+  return '0 0 22px rgba(155,107,255,.20)';
+}
+
+function textColorForValue(value) {
+  if (value <= 2) return 'var(--red)';
+  if (value <= 4) return 'var(--orange)';
+  if (value <= 6) return 'var(--green)';
+  if (value <= 8) return 'var(--cyan)';
+  return 'var(--violet)';
+}
+
+function applyTextColor(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.color = textColorForValue(value);
+  el.style.textShadow = shadowForValue(value);
+}
+
+function setBar(id, value) {
+  const fill = document.getElementById(id);
+  if (!fill) return;
+  fill.style.width = `${value * 10}%`;
+  fill.style.background = toneForValue(value);
+  fill.style.boxShadow = shadowForValue(value);
+}
+
+function setRingVisual(ring, valueNode, score) {
+  if (!ring) return;
+  const clamped = Math.max(0, Math.min(10, score));
+  const angle = (clamped / 10) * 360;
+
+  ring.style.setProperty('--score-angle', `${angle}deg`);
+  ring.classList.remove('good', 'mid', 'low');
+
+  if (score <= 2.9) {
+    ring.classList.add('low');
+    ring.style.background = `conic-gradient(from 180deg, var(--red) 0deg, var(--red) ${angle}deg, rgba(255,255,255,.08) ${angle}deg, rgba(255,255,255,.08) 360deg)`;
+  } else if (score <= 4.9) {
+    ring.classList.add('mid');
+    ring.style.background = `conic-gradient(from 180deg, var(--orange) 0deg, var(--orange) ${angle}deg, rgba(255,255,255,.08) ${angle}deg, rgba(255,255,255,.08) 360deg)`;
+  } else if (score <= 6.9) {
+    ring.classList.add('mid');
+    ring.style.background = `conic-gradient(from 180deg, var(--green) 0deg, var(--green) ${angle}deg, rgba(255,255,255,.08) ${angle}deg, rgba(255,255,255,.08) 360deg)`;
+  } else if (score <= 8.9) {
+    ring.classList.add('good');
+    ring.style.background = `conic-gradient(from 180deg, var(--cyan) 0deg, var(--cyan) ${angle}deg, rgba(255,255,255,.08) ${angle}deg, rgba(255,255,255,.08) 360deg)`;
+  } else {
+    ring.classList.add('good');
+    ring.style.background = `conic-gradient(from 180deg, var(--blue) 0deg, var(--violet) ${angle}deg, rgba(255,255,255,.08) ${angle}deg, rgba(255,255,255,.08) 360deg)`;
+  }
+
+  if (valueNode) {
+    valueNode.textContent = score.toFixed(1);
+    valueNode.dataset.value = score;
+    valueNode.style.color = textColorForValue(score);
+    valueNode.style.textShadow = shadowForValue(score);
+  }
+}
+
+function updateScoreRing(score) {
+  setRingVisual(document.getElementById('scoreRing'), document.getElementById('resultScore'), score);
+}
+
+function updateDashScoreRing(score) {
+  setRingVisual(document.getElementById('scoreRingDash'), document.getElementById('dashRingScore'), score);
+}
+
+function getHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveToHistory(state, score, verdict) {
+  const history = getHistory();
+  const item = {
+    gameName: state.gameName,
+    platform: state.platform,
+    control: state.control,
+    freedom: state.freedom,
+    expression: state.expression,
+    engagement: state.engagement,
+    depth: state.depth,
+    flow: state.flow,
+    intensity: state.intensity,
+    replay: state.replay,
+    friction: state.friction || [],
+    score,
+    verdict,
+    notes: state.notes || '',
+    time: Date.now()
+  };
+
+  const filtered = history.filter(x => x.gameName.toLowerCase() !== state.gameName.toLowerCase());
+  filtered.unshift(item);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered.slice(0, 12)));
+}
+
+function loadHistoryItem(item) {
+  const state = {
+    gameName: item.gameName || 'Untitled Game',
+    platform: item.platform || 'PC',
+    control: Number(item.control ?? 5),
+    freedom: Number(item.freedom ?? 5),
+    expression: Number(item.expression ?? 5),
+    engagement: Number(item.engagement ?? 5),
+    depth: Number(item.depth ?? 5),
+    flow: Number(item.flow ?? 5),
+    intensity: Number(item.intensity ?? 5),
+    replay: Number(item.replay ?? 5),
+    notes: item.notes || '',
+    friction: Array.isArray(item.friction) ? item.friction : []
+  };
+
+  loadState(state);
+  showTab('results');
+}
+
+function renderRecentGames() {
+  const host = document.getElementById('recentGamesList');
+  if (!host) return;
+
+  const history = getHistory();
+  if (!history.length) {
+    host.innerHTML = '<div class="analysis-item">No recent games yet.</div>';
+    return;
+  }
+
+  host.innerHTML = history.map(item => {
+    const preview = (item.notes && item.notes.trim())
+      ? item.notes.trim()
+      : (item.verdict && item.verdict.trim() ? item.verdict.trim() : 'No details yet.');
+
+    const scoreColor = textColorForValue(item.score);
+
+    return `
+      <div class="recent-game-item compact">
+        <div class="recent-game-head" data-game-name="${item.gameName}">
+          <div class="recent-game-left">
+            <div class="recent-game-title">${item.gameName}</div>
+            <div class="recent-game-preview">${preview}</div>
+          </div>
+          <div class="recent-game-score" style="color:${scoreColor}">${item.score.toFixed(1)}</div>
+          <div class="recent-game-chevron">›</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  host.querySelectorAll('[data-game-name]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const gameName = btn.getAttribute('data-game-name');
+      const item = history.find(x => x.gameName === gameName);
+      if (item) loadHistoryItem(item);
+    });
+  });
+}
+
+function previewDash() {
+  const state = getState();
+  const score = scoreState(state);
+
+  const dashGame = document.getElementById('dashGame');
+  if (dashGame) dashGame.textContent = state.gameName;
+
+  animateNumber(document.getElementById('dashScore'), score, 1);
+  animateNumber(document.getElementById('dashIntensity'), state.intensity, 0);
+  animateNumber(document.getElementById('dashReplay'), state.replay, 0);
+
+  applyTextColor('dashScore', score);
+  applyTextColor('sidebarScore', score);
+  applyTextColor('dashRingScore', score);
+
+  const sidebarPlatform = document.getElementById('sidebarPlatform');
+  if (sidebarPlatform) sidebarPlatform.textContent = state.platform;
+
+  updateDashScoreRing(score);
+}
+
+function updateResults(state, initial = false) {
+  const score = scoreState(state);
+  const verdict = buildVerdict(state);
+
+  updateScoreRing(score);
+  updateDashScoreRing(score);
+
+  const resultGame = document.getElementById('resultGame');
+  if (resultGame) resultGame.textContent = state.gameName;
+
+  const verdictText = document.getElementById('verdictText');
+  if (verdictText) verdictText.textContent = verdict;
+
+  const dashGame = document.getElementById('dashGame');
+  if (dashGame) dashGame.textContent = state.gameName;
+
+  const sidebarScore = document.getElementById('sidebarScore');
+  if (sidebarScore) sidebarScore.textContent = score.toFixed(1);
+
+  const sidebarPlatform = document.getElementById('sidebarPlatform');
+  if (sidebarPlatform) sidebarPlatform.textContent = state.platform;
+
+  const recentTakeGame = document.getElementById('recentTakeGame');
+  if (recentTakeGame) recentTakeGame.textContent = state.gameName;
+
+  const dashVerdict = document.getElementById('dashVerdict');
+  if (dashVerdict) dashVerdict.textContent = verdict;
+
+  const dashNotesPreview = document.getElementById('dashNotesPreview');
+  if (dashNotesPreview) {
+    dashNotesPreview.textContent = state.notes && state.notes.trim() ? state.notes.trim() : 'No notes yet.';
+  }
+
+  const resultUserNote = document.getElementById('resultUserNote');
+  if (resultUserNote) {
+    resultUserNote.textContent = state.notes && state.notes.trim() ? state.notes.trim() : 'No notes yet.';
+  }
+
+  if (initial) {
+    const resultScore = document.getElementById('resultScore');
+    const dashScore = document.getElementById('dashScore');
+    const dashIntensity = document.getElementById('dashIntensity');
+    const dashReplay = document.getElementById('dashReplay');
+    const dashRingScore = document.getElementById('dashRingScore');
+
+    if (resultScore) { resultScore.dataset.value = score; resultScore.textContent = score.toFixed(1); }
+    if (dashScore) { dashScore.dataset.value = score; dashScore.textContent = score.toFixed(1); }
+    if (dashIntensity) { dashIntensity.dataset.value = state.intensity; dashIntensity.textContent = state.intensity; }
+    if (dashReplay) { dashReplay.dataset.value = state.replay; dashReplay.textContent = state.replay; }
+    if (dashRingScore) { dashRingScore.dataset.value = score; dashRingScore.textContent = score.toFixed(1); }
+  } else {
+    animateNumber(document.getElementById('resultScore'), score, 1);
+    animateNumber(document.getElementById('dashScore'), score, 1);
+    animateNumber(document.getElementById('dashIntensity'), state.intensity, 0);
+    animateNumber(document.getElementById('dashReplay'), state.replay, 0);
+    animateNumber(document.getElementById('dashRingScore'), score, 1);
+  }
+
+  applyTextColor('sidebarScore', score);
+  applyTextColor('dashScore', score);
+  applyTextColor('resultScore', score);
+  applyTextColor('dashRingScore', score);
+
+  const dashScoreCard = document.getElementById('dashScore')?.closest('.mini-card');
+  const sidebarScoreCard = document.getElementById('sidebarScore')?.closest('.meta-card');
+  if (dashScoreCard) {
+    dashScoreCard.style.borderColor = textColorForValue(score);
+    dashScoreCard.style.boxShadow = shadowForValue(score);
+  }
+  if (sidebarScoreCard) {
+    sidebarScoreCard.style.borderColor = textColorForValue(score);
+    sidebarScoreCard.style.boxShadow = shadowForValue(score);
+  }
+
+  const resultMap = {
+    resultControl: state.control,
+    resultFreedom: state.freedom,
+    resultExpression: state.expression,
+    resultEngagement: state.engagement,
+    resultIntensity: state.intensity,
+    resultReplay: state.replay
+  };
+
+  Object.entries(resultMap).forEach(([id, value]) => {
+    setBar(id, value);
+    const valueNode = document.getElementById(`${id}Value`);
+    if (valueNode) valueNode.textContent = value;
+  });
+}
+
+function clearLatestGame() {
+  localStorage.removeItem(STORAGE_KEY);
+  loadState(defaultState);
+  showTab('dashboard');
+}
+
+function clearRecentGames() {
+  localStorage.removeItem(HISTORY_KEY);
+  renderRecentGames();
+}
+
+navButtons.forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+goButtons.forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.go)));
+
+document.getElementById('startTestBtn')?.addEventListener('click', () => showTab('test'));
+document.getElementById('loadDemoBtn')?.addEventListener('click', () => {
+  loadState(defaultState);
+  showTab('dashboard');
+});
+
+tags.forEach(tag => {
+  tag.addEventListener('click', () => tag.classList.toggle('active'));
+});
+
+['control','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
+  const input = document.getElementById(id);
+  const display = document.getElementById(`${id}Display`);
+  if (input && display) {
+    input.addEventListener('input', () => {
+      display.textContent = input.value;
+      previewDash();
+    });
+  }
+});
+
+document.getElementById('calculateBtn')?.addEventListener('click', () => {
+  const state = getState();
+  const score = scoreState(state);
+  const verdict = buildVerdict(state);
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  saveToHistory(state, score, verdict);
+  updateResults(state);
+  renderRecentGames();
+  showTab('results');
+});
+
+document.getElementById('resetBtn')?.addEventListener('click', () => {
+  loadState(defaultState);
+  showTab('test');
+});
+
+document.getElementById('clearLatestBtn')?.addEventListener('click', clearLatestGame);
+document.getElementById('clearHistoryBtn')?.addEventListener('click', clearRecentGames);
+
+const stored = localStorage.getItem(STORAGE_KEY);
+if (stored) {
+  try {
+    loadState(JSON.parse(stored));
+  } catch {
+    loadState(defaultState);
+  }
+} else {
+  loadState(defaultState);
+}
+
+renderRecentGames();
