@@ -6,51 +6,8 @@
   <meta name="description" content="icyNatural Game OS - test games and rate how they feel." />
   <title>icyNatural — Game OS</title>
   <link rel="stylesheet" href="assets/css/styles.css" />
-<style id="hero-split-style">
-.hero-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  height: 300px;
-  border-radius: 20px;
-  overflow: hidden;
-  margin-bottom: 24px;
-}
-
-.hero-left {
-  background: #0b1220;
-  padding: 40px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.hero-right {
-  display: flex;
-  flex-direction: column;
-}
-
-.img-row {
-  flex: 1;
-  background-size: cover;
-  background-position: center;
-}
-</style>
 </head>
 <body>
-<div class="hero-split">
-  <div class="hero-left">
-    <p class="eyebrow">ICY GAME OS</p>
-    <h1>Measure game experience clearly.</h1>
-    <p>Track how games actually feel across control, flow, and engagement.</p>
-    <button class="cta" onclick="document.querySelector('[data-view=test]').click()">Start Testing</button>
-  </div>
-
-  <div class="hero-right">
-    <div class="img-row" style="background-image:url('assets/game1.jpg')"></div>
-    <div class="img-row" style="background-image:url('assets/game2.jpg')"></div>
-    <div class="img-row" style="background-image:url('assets/game3.jpg')"></div>
-  </div>
-</div>
   <div class="shell">
     <header class="topbar panel">
       <div class="brand-wrap">
@@ -359,7 +316,6 @@
   <script src="assets/js/app.js"></script>
 </body>
 </html>
-
 
 
 
