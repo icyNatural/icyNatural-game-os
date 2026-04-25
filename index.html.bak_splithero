@@ -94,21 +94,39 @@
 
       <main class="main">
         <section class="tab active" id="dashboard">
-                    <section class="hero panel hero-split">
-            <div class="hero-left">
-              <div class="eyebrow">ICY GAME OS</div>
+          <section class="hero panel">
+            <div>
+              <div class="eyebrow">Latest Test</div>
               <h2>Measure game experience clearly.</h2>
-              <p>Track how games actually feel across control, clarity, flow, engagement, and return value.</p>
+              <p>
+                Record responsiveness, clarity, engagement, and return value without biasing the result first.
+              </p>
               <div class="hero-actions">
-                <button class="btn btn-primary" data-go="test">Start Testing</button>
-                <button class="btn btn-secondary" data-go="history">View History</button>
+                <button class="btn btn-primary" data-go="test">Test a Game</button>
+                <button class="btn btn-secondary" data-go="results">View Results</button>
               </div>
             </div>
-
-            <div class="hero-right">
-              <div class="img-row img-row-1"></div>
-              <div class="img-row img-row-2"></div>
-              <div class="img-row img-row-3"></div>
+            <div class="hero-grid">
+              <article class="mini-card">
+                <div class="mini-label">Current Game</div>
+                <div class="mini-value" id="dashGame">Hi-Fi Rush</div>
+                <div class="mini-note">Demo loaded.</div>
+              </article>
+              <article class="mini-card">
+                <div class="mini-label">Score</div>
+                <div class="mini-value" id="dashScore" data-value="8.2">8.2</div>
+                <div class="mini-note">Live weighted score.</div>
+              </article>
+              <article class="mini-card">
+                <div class="mini-label">Intensity</div>
+                <div class="mini-value" id="dashIntensity" data-value="9">9</div>
+                <div class="mini-note">How dense the action feels.</div>
+              </article>
+              <article class="mini-card">
+                <div class="mini-label">Replay Pull</div>
+                <div class="mini-value" id="dashReplay" data-value="8">8</div>
+                <div class="mini-note">Would you run it back?</div>
+              </article>
             </div>
           </section>
 
@@ -341,7 +359,6 @@
   <script src="assets/js/app.js"></script>
 </body>
 </html>
-
 
 
 
