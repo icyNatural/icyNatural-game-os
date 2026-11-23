@@ -5,8 +5,10 @@ const tags = document.querySelectorAll('#frictionTags .tag');
 
 const STORAGE_KEY = 'icyNaturalGameOS';
 const HISTORY_KEY = 'icyNaturalGameOSHistory';
+const RATING_IDS = ['control','clarity','freedom','expression','engagement','depth','flow','intensity','replay'];
+let saveInFlight = false;
 
-const defaultState = {
+const demoState = {
   gameName: 'Hi-Fi Rush',
   platform: 'PC',
   control: 8,
@@ -22,28 +24,76 @@ const defaultState = {
   friction: []
 };
 
-function showTab(tabId) {
+const blankTestState = {
+  gameName: '', platform: '', notes: '', friction: [],
+  control: null, clarity: null, freedom: null, expression: null,
+  engagement: null, depth: null, flow: null, intensity: null, replay: null
+};
+
+function showTab(tabId, options = {}) {
+  if (tabId === 'test' && options.preserveDraft !== true) resetNewTestForm();
   tabs.forEach(tab => tab.classList.toggle('active', tab.id === tabId));
   navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabId));
 }
 
+function ratingValue(id) {
+  const input = document.getElementById(id);
+  if (!input || input.dataset.answered !== 'true') return null;
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : null;
+}
+
 function getState() {
   const friction = [...document.querySelectorAll('#frictionTags .tag.active')].map(t => t.textContent.trim());
+  const gameName = document.getElementById('gameName')?.value.trim() || '';
+  const wrap = document.getElementById('gameNameWrap');
+  const nameKey = (value) => (window.GOS && GOS.util && GOS.util.normalizeKey
+    ? GOS.util.normalizeKey(value)
+    : String(value || '').toLowerCase());
+  const gameId = wrap && wrap.dataset.gameId && gameName && wrap.dataset.gameName &&
+    nameKey(wrap.dataset.gameName) === nameKey(gameName)
+    ? wrap.dataset.gameId
+    : null;
   return {
-    gameName: document.getElementById('gameName')?.value || 'Untitled Game',
-    platform: document.getElementById('platform')?.value || 'PC',
-    control: Number(document.getElementById('control')?.value || 5),
-    clarity: Number(document.getElementById('clarity')?.value || 5),
-    freedom: Number(document.getElementById('freedom')?.value || 5),
-    expression: Number(document.getElementById('expression')?.value || 5),
-    engagement: Number(document.getElementById('engagement')?.value || 5),
-    depth: Number(document.getElementById('depth')?.value || 5),
-    flow: Number(document.getElementById('flow')?.value || 5),
-    intensity: Number(document.getElementById('intensity')?.value || 5),
-    replay: Number(document.getElementById('replay')?.value || 5),
+    gameName,
+    gameId,
+    platform: document.getElementById('platform')?.value || '',
+    control: ratingValue('control'),
+    clarity: ratingValue('clarity'),
+    freedom: ratingValue('freedom'),
+    expression: ratingValue('expression'),
+    engagement: ratingValue('engagement'),
+    depth: ratingValue('depth'),
+    flow: ratingValue('flow'),
+    intensity: ratingValue('intensity'),
+    replay: ratingValue('replay'),
     notes: document.getElementById('notes')?.value || '',
     friction
   };
+}
+
+function validateTestState(state = getState()) {
+  const missing = [];
+  if (!state.gameName) missing.push('game name');
+  if (!state.platform) missing.push('platform');
+  const unanswered = RATING_IDS.filter(id => !Number.isFinite(state[id]));
+  if (unanswered.length) missing.push(`${unanswered.length} rating${unanswered.length === 1 ? '' : 's'}`);
+  return { valid: missing.length === 0, missing, unanswered };
+}
+
+function updateTestValidation() {
+  const validation = validateTestState();
+  const button = document.getElementById('calculateBtn');
+  const status = document.getElementById('testValidationStatus');
+  if (button) button.disabled = saveInFlight || !validation.valid;
+  if (status) {
+    status.classList.toggle('is-ready', validation.valid);
+    status.classList.remove('is-error');
+    status.textContent = saveInFlight ? 'Saving this experience…' : validation.valid
+      ? 'Ready to calculate and save this experience.'
+      : 'Required: ' + validation.missing.join(', ') + '.';
+  }
+  return validation;
 }
 
 function scoreState(state) {
@@ -63,7 +113,8 @@ function scoreState(state) {
   let weightedSum = 0;
 
   for (const key in weights) {
-    const value = safeNumber(state[key], 5);
+    const value = Number(state[key]);
+    if (!Number.isFinite(value)) return null;
     const weight = weights[key];
     weightedSum += value * weight;
     totalWeight += weight;
@@ -189,6 +240,24 @@ function updateDashScoreRing(score) {
 }
 
 function getHistory() {
+  const ctx = window.GOS && GOS.gos && GOS.gos.context();
+  if (ctx && ctx.booted) {
+    const history = ctx.experiences.map(experience => ({
+      ...experience.scores, __experienceId: experience.id, gameId: experience.gameId,
+      gameName: experience.gameName, platform: experience.platform, notes: experience.notes,
+      friction: experience.friction, score: experience.score, verdict: experience.verdict,
+      time: experience.date ?? Date.parse(experience.created_at)
+    }));
+    try {
+      const legacy = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      if (Array.isArray(legacy)) legacy.forEach(item => {
+        if (!history.some(record => item.__experienceId
+          ? record.__experienceId === item.__experienceId
+          : record.gameName === item.gameName && record.time === item.time && record.score === item.score)) history.push(item);
+      });
+    } catch { /* malformed legacy JSON remains untouched */ }
+    return history.sort((a, b) => (b.time || 0) - (a.time || 0));
+  }
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -225,6 +294,9 @@ function saveToHistory(state, score, verdict) {
 
 function loadHistoryItem(item) {
   const state = {
+    __experienceId: item.__experienceId,
+    recordedScore: item.score,
+    recordedVerdict: item.verdict,
     gameName: item.gameName || 'Untitled Game',
     platform: item.platform || 'PC',
     control: Number(item.control ?? 5),
@@ -274,34 +346,69 @@ function updateTakeChips(state) {
   if (identity) identity.textContent = buildIdentityLine(state);
 }
 
-const featuredTakeArtMap = {
-  "halo infinite": "assets/img/games/halo-infinite.jpg",
-  "naraka": "assets/img/games/naraka.jpg",
-  "gow5": "assets/img/games/gow5.jpg",
-  "god of war": "assets/img/games/gow5.jpg",
-  "hi fi": "assets/img/games/hifi.jpg",
-  "hi-fi rush": "assets/img/games/hifi.jpg",
-  "wu": "assets/img/games/wu.jpg"
-};
+function setFeaturedTakeFallback(bg) {
+  bg.style.backgroundImage = 'radial-gradient(circle at 22% 40%, rgba(99,215,255,.16), transparent 28%), radial-gradient(circle at 78% 18%, rgba(155,107,255,.10), transparent 20%), linear-gradient(120deg, rgba(255,255,255,.02), transparent 28%, rgba(255,255,255,.01))';
+  bg.style.opacity = '1';
+  bg.style.filter = 'none';
+  bg.style.transform = 'none';
+}
 
 function updateFeaturedTakeBackground(state) {
   const bg = document.getElementById('featuredTakeBg');
   if (!bg) return;
 
-  const key = (state.gameName || '').trim().toLowerCase();
-  const art = featuredTakeArtMap[key];
+  const name = (state.gameName || '').trim();
+  const art = (window.GOS && GOS.art && name) ? GOS.art.cover(name) : null;
 
   if (art) {
-    bg.style.backgroundImage = `url('${art}')`;
-    bg.style.opacity = '.16';
-    bg.style.filter = 'blur(10px) saturate(1.1)';
-    bg.style.transform = 'scale(1.08)';
+    const probe = new Image();
+    probe.onload = function () {
+      bg.style.backgroundImage = `url('${art}')`;
+      bg.style.opacity = '1';
+      bg.style.filter = 'none';
+      bg.style.transform = 'none';
+    };
+    probe.onerror = function () { setFeaturedTakeFallback(bg); };
+    probe.src = art;
   } else {
-    bg.style.backgroundImage = 'radial-gradient(circle at 22% 40%, rgba(99,215,255,.16), transparent 28%), radial-gradient(circle at 78% 18%, rgba(155,107,255,.10), transparent 20%), linear-gradient(120deg, rgba(255,255,255,.02), transparent 28%, rgba(255,255,255,.01))';
-    bg.style.opacity = '.95';
-    bg.style.filter = 'none';
-    bg.style.transform = 'none';
+    setFeaturedTakeFallback(bg);
   }
+}
+
+function escapeText(value) {
+  if (window.GOS && GOS.util && GOS.util.escapeHtml) return GOS.util.escapeHtml(String(value ?? ''));
+  return String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function legacyScores(item) {
+  return {
+    control: Number(item.control ?? 5), clarity: Number(item.clarity ?? 5), freedom: Number(item.freedom ?? 5),
+    expression: Number(item.expression ?? 5), engagement: Number(item.engagement ?? 5), depth: Number(item.depth ?? 5),
+    flow: Number(item.flow ?? 5), intensity: Number(item.intensity ?? 5), replay: Number(item.replay ?? 5)
+  };
+}
+
+function mountCurrentGlyphs(state, score) {
+  if (!window.GOS || !GOS.glyph) return;
+  const ctx = GOS.gos && GOS.gos.context ? GOS.gos.context() : null;
+  const latest = state.__experienceId && ctx ? ctx.experiences.find(experience => experience.id === state.__experienceId)
+    : ctx && ctx.experiences ? ctx.experiences.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0] : null;
+  const signals = latest && ctx ? ctx.signals.filter(signal => signal.experienceId === latest.id) : [];
+  const data = { scores: legacyScores(state), score, signals };
+  GOS.glyph.mount('#dashboardGlyph', data, { size: 'lg', variant: 'session', label: `${state.gameName} latest experience`, signals });
+  GOS.glyph.mount('#resultGlyph', data, { size: 'xl', variant: 'session', label: `${state.gameName} session`, signals, labels: true });
+}
+
+function hydrateHistoryGlyphs(host, history) {
+  if (!window.GOS || !GOS.glyph) return;
+  host.querySelectorAll('[data-glyph-index]').forEach(node => {
+    const item = history[Number(node.dataset.glyphIndex)];
+    if (!item) return;
+    const scores = legacyScores(item);
+    GOS.glyph.mount(node, { scores, score: Number(item.score) || GOS.glyphEngine.average(scores) }, { size: 'xs', variant: 'session', label: `${item.gameName} session` });
+  });
 }
 
 function renderRecentGames() {
@@ -314,31 +421,37 @@ function renderRecentGames() {
     return;
   }
 
-  host.innerHTML = history.map(item => {
+  host.innerHTML = history.map((item, index) => {
     const preview = (item.notes && item.notes.trim())
       ? item.notes.trim()
       : (item.verdict && item.verdict.trim() ? item.verdict.trim() : 'No details yet.');
 
     const scoreColor = textColorForValue(item.score);
+    const key = item.__experienceId || `idx-${index}`;
+    const art = (window.GOS && GOS.art) ? GOS.art.cover(item.gameName) : '';
 
     return `
       <div class="recent-game-item compact">
-        <div class="recent-game-head" data-game-name="${item.gameName}">
+        <div class="recent-game-head" data-game-key="${escapeText(key)}">
+          <div class="history-glyph" data-glyph-index="${index}"></div>
           <div class="recent-game-left">
-            <div class="recent-game-title">${item.gameName}</div>
-            <div class="recent-game-preview">${preview}</div>
+            <div class="recent-game-title">${escapeText(item.gameName)}</div>
+            <div class="recent-game-preview">${escapeText(preview)}</div>
           </div>
-          <div class="recent-game-score" style="color:${scoreColor}">${item.score.toFixed(1)}</div>
+          <div class="recent-game-score" style="color:${scoreColor}">${Number(item.score).toFixed(1)}</div>
           <div class="recent-game-chevron">›</div>
         </div>
       </div>
     `;
   }).join('');
+  hydrateHistoryGlyphs(host, history);
 
-  host.querySelectorAll('[data-game-name]').forEach(btn => {
+  host.querySelectorAll('[data-game-key]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const gameName = btn.getAttribute('data-game-name');
-      const item = getHistory().find(x => x.gameName === gameName);
+      const key = btn.getAttribute('data-game-key');
+      const historyList = getHistory();
+      const item = historyList.find(x => (x.__experienceId || '') === key) ||
+        historyList.find((x, i) => `idx-${i}` === key);
       if (item) loadHistoryItem(item);
     });
   });
@@ -354,33 +467,38 @@ function renderHistoryGames() {
     return;
   }
 
-  host.innerHTML = history.map(item => {
+  host.innerHTML = history.map((item, index) => {
     const preview = (item.notes && item.notes.trim())
       ? item.notes.trim()
       : (item.verdict && item.verdict.trim() ? item.verdict.trim() : 'No details yet.');
 
     const scoreColor = textColorForValue(item.score);
     const tested = item.time ? new Date(item.time).toLocaleDateString() : 'Saved';
+    const key = item.__experienceId || `idx-${index}`;
+    const art = (window.GOS && GOS.art) ? GOS.art.cover(item.gameName) : '';
 
     return `
       <div class="recent-game-item history-game-item">
-        <div class="recent-game-head" data-history-game="${item.gameName}">
+        <div class="recent-game-head" data-history-key="${escapeText(key)}">
+          <div class="history-glyph" data-glyph-index="${index}"></div>
           <div class="recent-game-left">
-            <div class="recent-game-title">${item.gameName}</div>
-            <div class="history-game-meta">${item.platform || 'Unknown Platform'} • ${tested}</div>
-            <div class="recent-game-preview">${preview}</div>
+            <div class="recent-game-title">${escapeText(item.gameName)}</div>
+            <div class="history-game-meta">${escapeText(item.platform || 'Unknown Platform')} • ${escapeText(tested)}</div>
+            <div class="recent-game-preview">${escapeText(preview)}</div>
           </div>
-          <div class="recent-game-score" style="color:${scoreColor}">${item.score.toFixed(1)}</div>
+          <div class="recent-game-score" style="color:${scoreColor}">${Number(item.score).toFixed(1)}</div>
           <div class="recent-game-chevron">›</div>
         </div>
       </div>
     `;
   }).join('');
+  hydrateHistoryGlyphs(host, history);
 
-  host.querySelectorAll('[data-history-game]').forEach(btn => {
+  host.querySelectorAll('[data-history-key]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const gameName = btn.getAttribute('data-history-game');
-      const item = getHistory().find(x => x.gameName === gameName);
+      const key = btn.getAttribute('data-history-key');
+      const item = history.find(x => (x.__experienceId || '') === key) ||
+        history.find((x, i) => `idx-${i}` === key);
       if (item) loadHistoryItem(item);
     });
   });
@@ -388,7 +506,9 @@ function renderHistoryGames() {
 
 function previewDash() {
   const state = getState();
+  if (!validateTestState(state).valid) return;
   const score = scoreState(state);
+  mountCurrentGlyphs(state, score);
 
   const dashGame = document.getElementById('dashGame');
   if (dashGame) dashGame.textContent = state.gameName;
@@ -410,8 +530,10 @@ function previewDash() {
 }
 
 function updateResults(state, initial = false) {
-  const score = scoreState(state);
-  const verdict = buildVerdict(state);
+  const score = typeof state.recordedScore === 'number' && Number.isFinite(state.recordedScore)
+    ? state.recordedScore : scoreState(state);
+  const verdict = state.recordedVerdict || buildVerdict(state);
+  mountCurrentGlyphs(state, score);
 
   updateScoreRing(score);
   updateDashScoreRing(score);
@@ -492,6 +614,8 @@ function updateResults(state, initial = false) {
     resultFreedom: state.freedom,
     resultExpression: state.expression,
     resultEngagement: state.engagement,
+    resultDepth: state.depth,
+    resultFlow: state.flow,
     resultIntensity: state.intensity,
     resultReplay: state.replay
   };
@@ -503,36 +627,76 @@ function updateResults(state, initial = false) {
   });
 }
 
-function loadState(state) {
-  const ids = ['gameName','platform','control','clarity','freedom','expression','engagement','depth','flow','intensity','replay','notes'];
-  ids.forEach(id => {
+function loadState(state, options = {}) {
+  ['gameName','platform','notes'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    if (state[id] !== undefined) el.value = state[id];
+    el.value = state[id] === undefined || state[id] === null ? '' : state[id];
   });
 
-  ['control','clarity','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
+  RATING_IDS.forEach(id => {
     const display = document.getElementById(`${id}Display`);
     const input = document.getElementById(id);
-    if (display && input) display.textContent = input.value;
+    if (!input) return;
+    const answered = state[id] !== null && state[id] !== '' && Number.isFinite(Number(state[id]));
+    input.value = answered ? String(state[id]) : '5';
+    input.dataset.answered = answered ? 'true' : 'false';
+    input.closest('.metric-row')?.classList.toggle('is-unanswered', !answered);
+    const label = input.closest('.metric-row')?.querySelector('.metric-name')?.textContent || id;
+    input.setAttribute('aria-label', `${label}, ${answered ? input.value + ' out of 10' : 'unanswered'}`);
+    if (display) display.textContent = answered ? input.value : 'Unanswered';
   });
 
   tags.forEach(tag => {
     tag.classList.toggle('active', (state.friction || []).includes(tag.textContent.trim()));
   });
 
-  updateResults(state, true);
+  updateTestValidation();
+  if (options.updateViews !== false && validateTestState(state).valid) updateResults(state, true);
 }
+
+function clearTransientSelections() {
+  tags.forEach(tag => tag.classList.remove('active'));
+  if (window.GOS && GOS.gos && GOS.gos.resetSignalTags) GOS.gos.resetSignalTags('overall');
+  const context = document.getElementById('signalContext');
+  if (context) context.value = 'overall';
+  const media = document.getElementById('experienceMediaFile');
+  if (media) media.value = '';
+  const visibility = document.getElementById('experienceMediaVisibility');
+  if (visibility) visibility.value = 'private';
+  const mediaStatus = document.getElementById('experienceMediaStatus');
+  if (mediaStatus) mediaStatus.textContent = 'No media selected.';
+}
+
+function resetNewTestForm() {
+  loadState(blankTestState, { updateViews: false });
+  clearTransientSelections();
+  updateTestValidation();
+}
+
+function startGameExperience(game) {
+  resetNewTestForm();
+  const name = game && game.name ? game.name : String(game || '');
+  const gameName = document.getElementById('gameName');
+  if (gameName) gameName.value = name;
+  updateTestValidation();
+  showTab('test', { preserveDraft: true });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+window.startGameExperience = startGameExperience;
 
 function clearLatestGame() {
   localStorage.removeItem(STORAGE_KEY);
-  loadState(defaultState);
+  resetNewTestForm();
   showTab('dashboard');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function clearRecentGames() {
   localStorage.removeItem(HISTORY_KEY);
+  const gos = window.GOS && GOS.gos;
+  if (gos && gos.clearExperiences) gos.clearExperiences();
   renderRecentGames();
   renderHistoryGames();
 }
@@ -546,8 +710,9 @@ document.getElementById('startTestBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('loadDemoBtn')?.addEventListener('click', () => {
-  loadState(defaultState);
-  showTab('dashboard');
+  clearTransientSelections();
+  loadState(demoState, { updateViews: false });
+  showTab('test', { preserveDraft: true });
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
@@ -560,21 +725,37 @@ tags.forEach(tag => {
   tag.addEventListener('click', () => tag.classList.toggle('active'));
 });
 
-['control','clarity','freedom','expression','engagement','depth','flow','intensity','replay'].forEach(id => {
+RATING_IDS.forEach(id => {
   const input = document.getElementById(id);
   const display = document.getElementById(`${id}Display`);
   if (input && display) {
     input.addEventListener('input', () => {
+      input.dataset.answered = 'true';
+      input.closest('.metric-row')?.classList.remove('is-unanswered');
       display.textContent = input.value;
-      previewDash();
+      const label = input.closest('.metric-row')?.querySelector('.metric-name')?.textContent || id;
+      input.setAttribute('aria-label', `${label}, ${input.value} out of 10`);
+      updateTestValidation();
     });
   }
 });
 
+document.getElementById('gameName')?.addEventListener('input', updateTestValidation);
+document.getElementById('platform')?.addEventListener('change', updateTestValidation);
+
 document.getElementById('calculateBtn')?.addEventListener('click', () => {
+  if (saveInFlight) return;
   const btn = document.getElementById('calculateBtn');
   const originalText = btn ? btn.textContent : 'Calculate Result';
 
+  const validation = updateTestValidation();
+  if (!validation.valid) {
+    const status = document.getElementById('testValidationStatus');
+    if (status) status.classList.add('is-error');
+    return;
+  }
+
+  saveInFlight = true;
   if (btn) {
     btn.textContent = 'Analyzing...';
     btn.disabled = true;
@@ -584,10 +765,8 @@ document.getElementById('calculateBtn')?.addEventListener('click', () => {
   const score = scoreState(state);
   const verdict = buildVerdict(state);
 
-  setTimeout(() => {
+  const finish = () => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      saveToHistory(state, score, verdict);
       updateResults(state);
       renderRecentGames();
       renderHistoryGames();
@@ -597,17 +776,40 @@ document.getElementById('calculateBtn')?.addEventListener('click', () => {
       console.error('Calculate flow error:', err);
       alert('A script error happened after calculation. Open DevTools Console to see it.');
     } finally {
+      saveInFlight = false;
       if (btn) {
         btn.textContent = originalText;
         btn.disabled = false;
       }
     }
+  };
+
+  setTimeout(() => {
+    const failed = () => {
+      saveInFlight = false;
+      const status = document.getElementById('testValidationStatus');
+      if (status) {
+        status.textContent = 'Not saved. Your draft is still here. Free storage or export existing data, then try again.';
+        status.classList.add('is-error');
+        status.setAttribute('role', 'alert');
+      }
+      if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    };
+    const gos = window.GOS && GOS.gos;
+    if (gos && gos.saveExperience) {
+      Promise.resolve().then(() => gos.saveExperience(state, score, verdict))
+        .then(finish)
+        .catch(failed);
+      return;
+    }
+
+    failed();
   }, 350);
 });
 
 document.getElementById('resetBtn')?.addEventListener('click', () => {
-  loadState(defaultState);
-  showTab('test');
+  resetNewTestForm();
+  showTab('test', { preserveDraft: true });
 });
 
 document.getElementById('clearLatestBtn')?.addEventListener('click', clearLatestGame);
@@ -618,15 +820,21 @@ if (stored) {
   try {
     loadState(JSON.parse(stored));
   } catch {
-    loadState(defaultState);
+    resetNewTestForm();
   }
 } else {
-  loadState(defaultState);
+  resetNewTestForm();
 }
+resetNewTestForm();
 
 renderRecentGames();
 renderHistoryGames();
 
+
+document.addEventListener('gos:data', () => {
+  renderRecentGames();
+  renderHistoryGames();
+});
 
 function safeNumber(value, fallback = 0) {
   const n = Number(value);
